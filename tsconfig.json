@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": [
+      "ESNext"
+    ],
+    "allowJs": true,
+    "checkJs": true,
+    "esModuleInterop": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "isolatedModules": true,
+    "declaration": true,
+    "sourceMap": true,
+    "sourceRoot": "./src",
+    "typeRoots": [ "./types", "./node_modules/@types"],
+    "rootDirs": ["./src"],
+    "rootDir": "./src",
+    "outDir": "./lib"
+  },
+  "include": [
+    "src"
+  ]
+}
