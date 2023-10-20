@@ -1,7 +1,7 @@
 {
   "name": "@apendua/compare",
   "version": "1.0.0",
-  "description": "",
+  "description": "Implements a total ordering for JSON values",
   "type": "module",
   "main": "lib/compare.js",
   "module": "src/compare.js",
