@@ -1,9 +1,3 @@
-import isPlainObject from "lodash/isPlainObject.js";
-import isDate from "lodash/isDate.js";
-import isRegExp from "lodash/isRegExp.js";
-import sortBy from "lodash/sortBy.js";
-import toPairs from "lodash/toPairs.js";
-
 /**
  * Because NaN < NaN => false, this function returns 0 for (NaN, NaN).
  * @template T
@@ -46,12 +40,18 @@ function defaultCompare(x, y) {
 
 /**
  * @template T
- * @typedef {(x: unknown) => x is T} Predicate
+ * @typedef {(x: T, y: T) => number} CompareFunction
  */
 
 /**
  * @template T
- * @typedef {(x: T, y: T) => number} CompareFunction
+ * @template U
+ * @typedef {(compare: CompareFunction<U>) => CompareFunction<T>} Plugin
+ */
+
+/**
+ * @template [T=never]
+ * @typedef {EJSONValue<Date | RegExp | undefined | T>} Comparable
  */
 
 /**
@@ -102,86 +102,55 @@ const combine = (comparators) => {
 };
 
 /**
- * @param {unknown} x
- * @returns {x is EJSONObject}
+ * @template T
+ * @param {EJSONValue<T>} x
+ * @returns {x is EJSONObject<T>}
  */
 function isEJSONObject(x) {
-  return isPlainObject(x);
+  return (
+    x instanceof Object &&
+    Object.prototype.toString.call(x) === '[object Object]'
+  );
 }
 
-// /**
-//  * @param {unknown} x
-//  * @returns {x is EJSONArray}
-//  */
-// function isEJSONArray(x) {
-//   return Array.isArray(x);
-// }
-
-// /**
-//  * @param {CompareFunction<EJSONValue>} compare
-//  * @param {number} i
-//  */
-// function compareAtIndex(compare, i) {
-//   return conditional(
-//     isEJSONArray,
-//     /**
-//      * @param {EJSONArray} x
-//      * @param {EJSONArray} y
-//      * @returns {number}
-//      */
-//     (x, y) => {
-//       return compare(x[i], y[i]);
-//     }
-//   );
-// }
-
-// /**
-//  * @param {CompareFunction<EJSONValue>} compare
-//  * @param {string} k
-//  */
-// function compareAtKey(compare, k) {
-//   return conditional(
-//     isEJSONObject,
-//     /**
-//      * @param {EJSONObject} x
-//      * @param {EJSONObject} y
-//      * @returns {number}
-//      */
-//     (x, y) => {
-//       return compare(x[k], y[k]);
-//     }
-//   );
-// }
-
 /**
- * @param {unknown} x
- * @returns {x is unknown[]}
+ * @template T
+ * @param {EJSONValue<T>} x
+ * @returns {x is EJSONArray<T>}
  */
-const isArray = (x) => Array.isArray(x);
-
-/**
- * @param {unknown} x
- * @returns {x is undefined}
- */
-const isUndefined = (x) => typeof x === "undefined";
+function isEJSONArray(x) {
+  return Array.isArray(x);
+}
 
 /**
  * @param {unknown} x
  * @returns {x is number}
  */
-const isNumber = (x) => typeof x === "number";
+const isNumber = (x) => typeof x === 'number';
 
 /**
  * @param {unknown} x
  * @returns {x is string}
  */
-const isString = (x) => typeof x === "string";
+const isString = (x) => typeof x === 'string';
 
 /**
  * @param {unknown} x
  * @returns {x is boolean}
  */
-const isBoolean = (x) => typeof x === "boolean";
+const isBoolean = (x) => typeof x === 'boolean';
+
+/**
+ * @param {unknown} x
+ * @returns {x is Date}
+ */
+const isDate = (x) => x instanceof Date;
+
+/**
+ * @param {unknown} x
+ * @returns {x is RegExp}
+ */
+const isRegExp = (x) => x instanceof RegExp;
 
 /**
  * @template T
@@ -201,62 +170,45 @@ const pluginConditional = (isOfType, compare) => {
 
 /**
  * @template T
- * @template U
- * @param {CompareFunction<U>} compare
- * @returns {CompareFunction<T>}
+ * @returns {Plugin<EJSONValue<T>, EJSONValue<T>>}
  */
-function pluginArray(compare) {
-  return conditional(
-    /**
-     * @param {unknown} x
-     * @returns {x is U[]}
-     */
-    (x) => {
-      return Array.isArray(x);
-    },
-    /**
-     * @param {U[]} x
-     * @param {U[]} y
-     * @returns {number}
-     */
-    (x, y) => {
-      const n = x.length;
-      const m = y.length;
-      for (let i = 0; i < n && i < m; i += 1) {
-        const result = compare(x[i], y[i]);
-        if (result !== 0) {
-          return result;
-        }
+const pluginArray = () => (compare) => {
+  return conditional(isEJSONArray, (x, y) => {
+    const n = x.length;
+    const m = y.length;
+    for (let i = 0; i < n && i < m; i += 1) {
+      const result = compare(x[i], y[i]);
+      if (result !== 0) {
+        return result;
       }
-      return defaultCompare(n, m);
     }
-  );
-}
+    return defaultCompare(n, m);
+  });
+};
 
 /**
- * @typedef {EJSONValue<Date | RegExp> | undefined} Comparable
+ * @template T
+ * @param {EJSONObject<T>} x
+ * @returns {Array<[string, EJSONValue<T>]>}
  */
+const toPairs = (x) => {
+  return Object.entries(x).sort((a, b) => defaultCompare(a[0], b[0]));
+};
 
 /**
- * @param {CompareFunction<Comparable>} compare
+ * @template T
+ * @returns {Plugin<EJSONValue<T>, EJSONValue<T>>}
  */
-const pluginObject = (compare) => {
-  return conditional(
-    isEJSONObject,
-    /**
-     * @param {EJSONObject} x
-     * @param {EJSONObject} y
-     * @returns {number}
-     */
-    (x, y) => compare(sortBy(toPairs(x), 0), sortBy(toPairs(y), 0))
-  );
+const pluginDictionary = () => (compare) => {
+  return conditional(isEJSONObject, (x, y) => compare(toPairs(x), toPairs(y)));
 };
 
 /**
  * @template T
  * @param {T} literal
+ * @returns {Plugin<unknown, never>}
  */
-const createLiteral = (literal) => {
+const pluginLiteral = (literal) => {
   /**
    * @param {unknown} x
    * @returns {x is T}
@@ -264,27 +216,18 @@ const createLiteral = (literal) => {
   function isTheSame(x) {
     return x === literal;
   }
-  return pluginConditional(
-    isTheSame,
-    /** @type {CompareFunction<T>} */ (defaultCompare)
-  );
+  return pluginConditional(isTheSame, defaultCompare);
 };
 
-const pluginDate = pluginConditional(
-  isDate,
-  /** @type {CompareFunction<Date>} */ (defaultCompare)
-);
-
-const pluginRegExp = pluginConditional(
-  isRegExp,
-  /** @type {CompareFunction<RegExp>} */ (defaultCompare)
-);
+/**
+ * @returns {Plugin<unknown, never>}
+ */
+const pluginDate = () => pluginConditional(isDate, defaultCompare);
 
 /**
- * @template T
- * @template U
- * @typedef {(compare: CompareFunction<U>) => CompareFunction<T>} Plugin
+ * @returns {Plugin<unknown, never>}
  */
+const pluginRegExp = () => pluginConditional(isRegExp, defaultCompare);
 
 /**
  * @template T
@@ -299,20 +242,27 @@ export function createCompare(plugins) {
   return compare;
 }
 
-// See:
-// https://docs.mongodb.com/manual/reference/bson-type-comparison-order/
-const compare = /** @type {typeof createCompare<Comparable>} */ (createCompare)(
-  [
-    pluginConditional(isUndefined, constant(0)),
-    createLiteral(null),
+/**
+ * @template [T=never]
+ * @returns {Plugin<Comparable<T>, Comparable<T>>[]}
+ */
+export const getDefaultPlugins = () => {
+  return [
+    pluginLiteral(undefined),
+    pluginLiteral(null),
     pluginConditional(isNumber, defaultCompare),
     pluginConditional(isString, defaultCompare),
-    pluginObject,
-    pluginArray,
+    pluginDictionary(),
+    pluginArray(),
     pluginConditional(isBoolean, defaultCompare),
-    pluginDate,
-    pluginRegExp,
-  ]
-);
+    pluginDate(),
+    pluginRegExp(),
+  ];
+};
+
+// NOTE: We are trying to mimic the total order on all BSON values
+// implemented in MongoDB. See:
+// https://docs.mongodb.com/manual/reference/bson-type-comparison-order/
+const compare = createCompare(getDefaultPlugins());
 
 export default compare;
