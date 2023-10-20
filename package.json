@@ -1,16 +1,28 @@
 {
   "name": "@apendua/compare",
-  "version": "1.0.0",
+  "version": "1.0.0-rc4",
   "description": "Implements a total ordering for JSON values",
   "type": "module",
-  "main": "lib/compare.js",
+  "main": "./main.cjs",
   "module": "src/compare.js",
+  "exports": {
+    ".": {
+      "require": "./main.cjs",
+      "import": "./src/compare.js"
+    }
+  },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run build:package.json",
+    "build:package.json": "echo '{\"type\":\"commonjs\"}' > lib/package.json",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"
   },
+  "files": [
+    "lib",
+    "src",
+    "main.cjs"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/apendua/compare.git"
