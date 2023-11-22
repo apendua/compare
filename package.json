@@ -5,15 +5,18 @@
   "type": "module",
   "main": "./main.cjs",
   "module": "src/compare.js",
+  "types": "types/compare.d.ts",
   "exports": {
     ".": {
       "require": "./main.cjs",
-      "import": "./src/compare.js"
+      "import": "./src/compare.js",
+      "types": "./types/compare.d.ts"
     }
   },
   "scripts": {
-    "build": "tsc && npm run build:package.json",
+    "build": "tsc && npm run build:package.json && npm run build:types",
     "build:package.json": "echo '{\"type\":\"commonjs\"}' > lib/package.json",
+    "build:types": "tsc --project tsconfig.types.json",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"
@@ -21,6 +24,7 @@
   "files": [
     "lib",
     "src",
+    "types",
     "main.cjs"
   ],
   "repository": {
