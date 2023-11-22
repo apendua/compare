@@ -1,11 +1,10 @@
 {
   "name": "@apendua/compare",
-  "version": "1.0.0-rc4",
+  "version": "1.0.0-rc5",
   "description": "Implements a total ordering for JSON values",
   "type": "module",
   "main": "./main.cjs",
   "module": "src/compare.js",
-  "types": "types/compare.d.ts",
   "exports": {
     ".": {
       "require": "./main.cjs",
@@ -25,7 +24,8 @@
     "lib",
     "src",
     "types",
-    "main.cjs"
+    "main.cjs",
+    "main.cjs.d.ts"
   ],
   "repository": {
     "type": "git",
