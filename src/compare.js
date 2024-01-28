@@ -243,6 +243,9 @@ export function createCompare(plugins) {
 }
 
 /**
+ * We are trying to mimic the total order on all BSON values
+ * implemented in MongoDB. See:
+ * https://docs.mongodb.com/manual/reference/bson-type-comparison-order/
  * @template [T=never]
  * @returns {Plugin<Comparable<T>, Comparable<T>>[]}
  */
@@ -260,9 +263,16 @@ export const getDefaultPlugins = () => {
   ];
 };
 
-// NOTE: We are trying to mimic the total order on all BSON values
-// implemented in MongoDB. See:
-// https://docs.mongodb.com/manual/reference/bson-type-comparison-order/
-const compare = createCompare(getDefaultPlugins());
+/**
+ * @typedef {object} CompareModule
+ * @property {typeof createCompare} createCompare
+ * @property {typeof getDefaultPlugins} getDefaultPlugins
+ */
+
+/** @type {CompareFunction<Comparable> & CompareModule} */
+const compare = Object.assign(createCompare(getDefaultPlugins()), {
+  createCompare,
+  getDefaultPlugins,
+});
 
 export default compare;

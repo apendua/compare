@@ -1,6 +1,6 @@
 {
   "name": "@apendua/compare",
-  "version": "1.0.0-rc5",
+  "version": "1.0.0-rc6",
   "description": "Implements a total ordering for JSON values",
   "type": "module",
   "main": "./main.cjs",
