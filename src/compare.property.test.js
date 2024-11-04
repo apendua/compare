@@ -1,7 +1,7 @@
 /* eslint-env jest */
 
 import * as fc from 'fast-check';
-import compare from './compare.js';
+import { compare } from './compare.js';
 
 const anyValue = fc.letrec((tie) => ({
   value: fc.oneof(

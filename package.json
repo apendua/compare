@@ -1,20 +1,20 @@
 {
   "name": "@apendua/compare",
-  "version": "1.0.0-rc6",
+  "version": "1.0.0-rc7",
   "description": "Implements a total ordering for JSON values",
   "type": "module",
-  "main": "./main.cjs",
-  "module": "src/compare.js",
+  "main": "./lib/compare.js",
+  "module": "./src/compare.js",
   "exports": {
     ".": {
-      "require": "./main.cjs",
+      "require": "./lib/compare.js",
       "import": "./src/compare.js",
       "types": "./types/compare.d.ts"
     }
   },
   "scripts": {
     "build": "tsc && npm run build:package.json && npm run build:types",
-    "build:package.json": "echo '{\"type\":\"commonjs\"}' > lib/package.json",
+    "build:package.json": "mkdir -p lib && echo '{\"type\":\"commonjs\"}' > lib/package.json",
     "build:types": "tsc --project tsconfig.types.json",
     "test": "jest",
     "test:watch": "jest --watch",
@@ -23,9 +23,7 @@
   "files": [
     "lib",
     "src",
-    "types",
-    "main.cjs",
-    "main.cjs.d.ts"
+    "types"
   ],
   "repository": {
     "type": "git",

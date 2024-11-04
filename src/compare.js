@@ -270,9 +270,7 @@ export const getDefaultPlugins = () => {
  */
 
 /** @type {CompareFunction<Comparable> & CompareModule} */
-const compare = Object.assign(createCompare(getDefaultPlugins()), {
+export const compare = Object.assign(createCompare(getDefaultPlugins()), {
   createCompare,
   getDefaultPlugins,
 });
-
-export default compare;

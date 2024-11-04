@@ -1,6 +1,6 @@
 /* eslint-env jest */
 
-import compare from './compare.js';
+import { compare } from './compare.js';
 
 test('compares undefined and null', () => {
   expect(compare(undefined, null)).toEqual(-1);
