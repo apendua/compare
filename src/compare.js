@@ -61,7 +61,7 @@ function defaultCompare(x, y) {
  * @param {CompareFunction<U>} compare
  * @returns {CompareFunction<T>}
  */
-function conditional(isOfType, compare) {
+export function conditional(isOfType, compare) {
   return (x, y) => {
     if (isOfType(x)) {
       if (isOfType(y)) {
@@ -263,14 +263,5 @@ export const getDefaultPlugins = () => {
   ];
 };
 
-/**
- * @typedef {object} CompareModule
- * @property {typeof createCompare} createCompare
- * @property {typeof getDefaultPlugins} getDefaultPlugins
- */
-
-/** @type {CompareFunction<Comparable> & CompareModule} */
-export const compare = Object.assign(createCompare(getDefaultPlugins()), {
-  createCompare,
-  getDefaultPlugins,
-});
+/** @type {CompareFunction<Comparable>} */
+export const compare = createCompare(getDefaultPlugins());
