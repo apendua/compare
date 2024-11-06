@@ -3,9 +3,8 @@
  * @template T
  * @param {T} x
  * @param {T} y
- * @returns
  */
-function defaultCompare(x, y) {
+function basicCompare(x, y) {
   if (x < y) {
     return -1;
   }
@@ -46,7 +45,7 @@ function defaultCompare(x, y) {
 /**
  * @template T
  * @template U
- * @typedef {(compare: CompareFunction<U>) => CompareFunction<T>} Plugin
+ * @typedef {(compare: CompareFunction<T>) => Builder<U>} Plugin
  */
 
 /**
@@ -55,51 +54,83 @@ function defaultCompare(x, y) {
  */
 
 /**
- * @template T
- * @template {T} U
- * @param {(x: T) => x is U} isOfType
- * @param {CompareFunction<U>} compare
- * @returns {CompareFunction<T>}
+ * @template U
+ * @template V
+ * @param {(x: U | V) => x is V} isOfType
+ * @param {CompareFunction<U>} fallbackCompare
+ * @param {CompareFunction<V>} compare
+ * @returns {CompareFunction<U | V>}
  */
-export function conditional(isOfType, compare) {
+function conditional(isOfType, fallbackCompare, compare) {
   return (x, y) => {
     if (isOfType(x)) {
       if (isOfType(y)) {
         return compare(x, y);
       }
-      return -1;
-    }
-    if (isOfType(y)) {
       return 1;
     }
-    return 0;
+    if (isOfType(y)) {
+      return -1;
+    }
+    return fallbackCompare(x, y);
   };
 }
 
 /**
  * @template T
- * @param {T} x
- * @returns {() => T}
  */
-const constant = (x) => () => x;
+export class Builder {
+  #compile;
 
-/**
- * @template T
- * @param {CompareFunction<T>[]} comparators
- * @returns {CompareFunction<T>}
- */
-const combine = (comparators) => {
-  return comparators.reduce(
-    (previousCompare, currentCompare) => (x, y) => {
-      const result = previousCompare(x, y);
-      if (result !== 0) {
-        return result;
-      }
-      return currentCompare(x, y);
-    },
-    constant(0)
-  );
-};
+  /**
+   * @param {(fn: CompareFunction<T>) => CompareFunction<T>} compile
+   */
+  constructor(compile) {
+    this.#compile = compile;
+  }
+
+  /**
+   * @template U
+   * @param {Plugin<T, T | U>} fn
+   * @returns {Builder<T | U>}
+   */
+  bind(fn) {
+    return new Builder((compare) => {
+      return fn(this.#compile(compare)).#compile(compare);
+    });
+  }
+
+  /**
+   * Put elements of type U after other everything else.
+   * @template U
+   * @param {(x: T | U) => x is U} isOfType
+   * @param {CompareFunction<U>} compare
+   * @returns {Builder<T | U>}
+   */
+  if(isOfType, compare) {
+    return this.bind((next) => {
+      return Builder.from(conditional(isOfType, next, compare));
+    });
+  }
+
+  /**
+   * @returns {CompareFunction<T>}
+   */
+  get() {
+    // NOTE: This looks like a circular dependency, but it is not.
+    const compare = this.#compile((x, y) => compare(x, y));
+    return compare;
+  }
+
+  /**
+   * @template U
+   * @param {CompareFunction<U>} compare
+   * @returns {Builder<U>}
+   */
+  static from(compare) {
+    return new Builder(() => compare);
+  }
+}
 
 /**
  * @template T
@@ -154,35 +185,29 @@ const isRegExp = (x) => x instanceof RegExp;
 
 /**
  * @template T
- * @template {T} U
- * @param {(x: T) => x is U} isOfType
- * @param {CompareFunction<U>} compare
- * @returns {Plugin<T, never>}
- */
-const pluginConditional = (isOfType, compare) => {
-  return constant(conditional(isOfType, compare));
-};
-
-/**
- * @template T
- * @typedef {(T extends (infer R)[] ? R[] : never) | (T extends unknown[] ? never : T)} PureArray
- */
-
-/**
- * @template T
  * @returns {Plugin<EJSONValue<T>, EJSONValue<T>>}
  */
-const pluginArray = () => (compare) => {
-  return conditional(isEJSONArray, (x, y) => {
-    const n = x.length;
-    const m = y.length;
-    for (let i = 0; i < n && i < m; i += 1) {
-      const result = compare(x[i], y[i]);
-      if (result !== 0) {
-        return result;
+const pluginArray = () => (next) => {
+  return new Builder((compare) => {
+    return conditional(
+      isEJSONArray,
+      next,
+      /**
+       * @param {EJSONArray<T>} x
+       * @param {EJSONArray<T>} y
+       */
+      (x, y) => {
+        const n = x.length;
+        const m = y.length;
+        for (let i = 0; i < n && i < m; i += 1) {
+          const result = compare(x[i], y[i]);
+          if (result !== 0) {
+            return result;
+          }
+        }
+        return basicCompare(n, m);
       }
-    }
-    return defaultCompare(n, m);
+    );
   });
 };
 
@@ -192,76 +217,65 @@ const pluginArray = () => (compare) => {
  * @returns {Array<[string, EJSONValue<T>]>}
  */
 const toPairs = (x) => {
-  return Object.entries(x).sort((a, b) => defaultCompare(a[0], b[0]));
+  return Object.entries(x).sort((a, b) => basicCompare(a[0], b[0]));
 };
 
 /**
  * @template T
  * @returns {Plugin<EJSONValue<T>, EJSONValue<T>>}
  */
-const pluginDictionary = () => (compare) => {
-  return conditional(isEJSONObject, (x, y) => compare(toPairs(x), toPairs(y)));
+const pluginDictionary = () => (next) => {
+  return new Builder((compare) => {
+    // const compareWithArray = Builder.from(compare).chain(pluginArray()).get();
+    return conditional(
+      isEJSONObject,
+      next,
+      /**
+       * @param {EJSONObject<T>} x
+       * @param {EJSONObject<T>} y
+       * @returns
+       */
+      (x, y) => {
+        return compare(toPairs(x), toPairs(y));
+      }
+    );
+  });
 };
 
 /**
  * @template T
- * @param {T} literal
- * @returns {Plugin<unknown, never>}
+ * @param {T} x
  */
-const pluginLiteral = (literal) => {
+const is = (x) => {
   /**
-   * @param {unknown} x
-   * @returns {x is T}
+   * @param {unknown} y
+   * @returns {y is T}
    */
-  function isTheSame(x) {
-    return x === literal;
-  }
-  return pluginConditional(isTheSame, defaultCompare);
+  return (y) => {
+    return y === x;
+  };
 };
-
-/**
- * @returns {Plugin<unknown, never>}
- */
-const pluginDate = () => pluginConditional(isDate, defaultCompare);
-
-/**
- * @returns {Plugin<unknown, never>}
- */
-const pluginRegExp = () => pluginConditional(isRegExp, defaultCompare);
-
-/**
- * @template T
- * @param {Plugin<T, T>[]} plugins
- */
-export function createCompare(plugins) {
-  /** @type {CompareFunction<T>} */
-  let compiled;
-  /** @type {CompareFunction<T>} */
-  const compare = (x, y) => compiled(x, y);
-  compiled = combine(plugins.map((plugin) => plugin(compare)));
-  return compare;
-}
 
 /**
  * We are trying to mimic the total order on all BSON values
  * implemented in MongoDB. See:
  * https://docs.mongodb.com/manual/reference/bson-type-comparison-order/
- * @template [T=never]
- * @returns {Plugin<Comparable<T>, Comparable<T>>[]}
  */
-export const getDefaultPlugins = () => {
-  return [
-    pluginLiteral(undefined),
-    pluginLiteral(null),
-    pluginConditional(isNumber, defaultCompare),
-    pluginConditional(isString, defaultCompare),
-    pluginDictionary(),
-    pluginArray(),
-    pluginConditional(isBoolean, defaultCompare),
-    pluginDate(),
-    pluginRegExp(),
-  ];
-};
+export const builder = Builder.from(
+  /**
+   * @param {Comparable} _x
+   * @param {Comparable} _y
+   */
+  (_x, _y) => 0
+)
+  .if(is(undefined), basicCompare)
+  .if(is(null), basicCompare)
+  .if(isNumber, basicCompare)
+  .if(isString, basicCompare)
+  .bind(pluginDictionary())
+  .bind(pluginArray())
+  .if(isBoolean, basicCompare)
+  .if(isDate, basicCompare)
+  .if(isRegExp, basicCompare);
 
-/** @type {CompareFunction<Comparable>} */
-export const compare = createCompare(getDefaultPlugins());
+export const compare = builder.get();
