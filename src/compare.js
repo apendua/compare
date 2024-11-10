@@ -1,10 +1,21 @@
 /**
+ * @template T
+ * @typedef {(x: T, y: T) => number} CompareFn
+ */
+
+/**
+ * @template T
+ * @template U
+ * @typedef {(compare: CompareFn<T>) => Builder<U>} Plugin
+ */
+
+/**
  * Because NaN < NaN => false, this function returns 0 for (NaN, NaN).
  * @template T
  * @param {T} x
  * @param {T} y
  */
-function basicCompare(x, y) {
+function comparePrimitives(x, y) {
   if (x < y) {
     return -1;
   }
@@ -15,12 +26,51 @@ function basicCompare(x, y) {
 }
 
 /**
+ * @template T
+ * @param {{ [key: string]: T }} x
+ * @param {{ [key: string]: T }} y
+ * @param {CompareFn<T>} compareProperties
+ * @returns {number}
+ */
+function compareObjects(x, y, compareProperties) {
+  const xKeys = Object.keys(x).sort();
+  const yKeys = Object.keys(y).sort();
+  const n = xKeys.length;
+  const m = yKeys.length;
+  for (let i = 0; i < n && i < m; i += 1) {
+    let result = comparePrimitives(xKeys[i], yKeys[i]);
+    if (result !== 0) {
+      return result;
+    }
+    result = compareProperties(x[xKeys[i]], y[yKeys[i]]);
+    if (result !== 0) {
+      return result;
+    }
+  }
+  return comparePrimitives(n, m);
+}
+
+/**
+ * @template T
+ * @param {T[]} x
+ * @param {T[]} y
+ * @param {CompareFn<T>} compareItems
+ */
+function compareArrays(x, y, compareItems) {
+  const n = x.length;
+  const m = y.length;
+  for (let i = 0; i < n && i < m; i += 1) {
+    const result = compareItems(x[i], y[i]);
+    if (result !== 0) {
+      return result;
+    }
+  }
+  return comparePrimitives(n, m);
+}
+
+/**
  * @template [T=never]
  * @typedef {(
- *   | null
- *   | string
- *   | number
- *   | boolean
  *   | EJSONObject<T>
  *   | EJSONArray<T>
  *   | T
@@ -38,30 +88,28 @@ function basicCompare(x, y) {
  */
 
 /**
- * @template T
- * @typedef {(x: T, y: T) => number} CompareFunction
- */
-
-/**
- * @template T
- * @template U
- * @typedef {(compare: CompareFunction<T>) => Builder<U>} Plugin
- */
-
-/**
  * @template [T=never]
- * @typedef {EJSONValue<Date | RegExp | undefined | T>} Comparable
+ * @typedef {EJSONValue<
+ *   | null
+ *   | string
+ *   | number
+ *   | boolean
+ *   | Date
+ *   | RegExp
+ *   | undefined
+ *   | T
+ * >} Comparable
  */
 
 /**
  * @template U
  * @template V
  * @param {(x: U | V) => x is V} isOfType
- * @param {CompareFunction<U>} fallbackCompare
- * @param {CompareFunction<V>} compare
- * @returns {CompareFunction<U | V>}
+ * @param {CompareFn<V>} compare
+ * @param {CompareFn<U>} next
+ * @returns {CompareFn<U | V>}
  */
-function conditional(isOfType, fallbackCompare, compare) {
+function makeConditional(isOfType, compare, next) {
   return (x, y) => {
     if (isOfType(x)) {
       if (isOfType(y)) {
@@ -72,7 +120,7 @@ function conditional(isOfType, fallbackCompare, compare) {
     if (isOfType(y)) {
       return -1;
     }
-    return fallbackCompare(x, y);
+    return next(x, y);
   };
 }
 
@@ -80,64 +128,73 @@ function conditional(isOfType, fallbackCompare, compare) {
  * @template T
  */
 export class Builder {
-  #compile;
+  #compare;
 
   /**
-   * @param {(fn: CompareFunction<T>) => CompareFunction<T>} compile
+   * @private
+   * @param {CompareFn<T>} compare
    */
-  constructor(compile) {
-    this.#compile = compile;
+  constructor(compare) {
+    this.#compare = compare;
   }
 
   /**
+   * Elements of type U will come after any other type defined so far.
    * @template U
-   * @param {Plugin<T, T | U>} fn
+   * @param {(x: T | U) => x is U} isType
+   * @param {CompareFn<U>} compare
    * @returns {Builder<T | U>}
    */
-  bind(fn) {
-    return new Builder((compare) => {
-      return fn(this.#compile(compare)).#compile(compare);
-    });
+  ifType(isType, compare) {
+    return new Builder(makeConditional(isType, compare, this.#compare));
   }
 
   /**
-   * Put elements of type U after other everything else.
+   * Elements of type U will come after any other type defined so far.
    * @template U
    * @param {(x: T | U) => x is U} isOfType
-   * @param {CompareFunction<U>} compare
-   * @returns {Builder<T | U>}
+   * @returns {Builder<T>}
    */
-  if(isOfType, compare) {
-    return this.bind((next) => {
-      return Builder.from(conditional(isOfType, next, compare));
-    });
+  type(isOfType) {
+    return this.ifType(isOfType, () => 0);
   }
 
   /**
-   * @returns {CompareFunction<T>}
+   * @returns {CompareFn<EJSONValue<T>>}
    */
   get() {
-    // NOTE: This looks like a circular dependency, but it is not.
-    const compare = this.#compile((x, y) => compare(x, y));
+    /**
+     * @param {EJSONValue<T>} x
+     * @param {EJSONValue<T>} y
+     * @returns {number}
+     */
+    const compare = (x, y) => {
+      if (isObject(x) && isObject(y)) {
+        return compareObjects(x, y, compare);
+      }
+      if (isArray(x) && isArray(y)) {
+        return compareArrays(x, y, compare);
+      }
+      return this.#compare(/** @type {T} */ (x), /** @type {T} */ (y));
+    };
     return compare;
   }
 
-  /**
-   * @template U
-   * @param {CompareFunction<U>} compare
-   * @returns {Builder<U>}
-   */
-  static from(compare) {
-    return new Builder(() => compare);
+  static create() {
+    /**
+     * @param {never} _x
+     * @param {never} _y
+     */
+    const equals = (_x, _y) => 0;
+    return new Builder(equals).type(isObject).type(isArray);
   }
 }
 
 /**
- * @template T
- * @param {EJSONValue<T>} x
- * @returns {x is EJSONObject<T>}
+ * @param {unknown} x
+ * @returns {x is { [x: string]: unknown }}
  */
-function isEJSONObject(x) {
+function isObject(x) {
   return (
     x instanceof Object &&
     Object.prototype.toString.call(x) === '[object Object]'
@@ -145,11 +202,10 @@ function isEJSONObject(x) {
 }
 
 /**
- * @template T
- * @param {EJSONValue<T>} x
- * @returns {x is EJSONArray<T>}
+ * @param {unknown} x
+ * @returns {x is unknown[]}
  */
-function isEJSONArray(x) {
+function isArray(x) {
   return Array.isArray(x);
 }
 
@@ -185,68 +241,9 @@ const isRegExp = (x) => x instanceof RegExp;
 
 /**
  * @template T
- * @returns {Plugin<EJSONValue<T>, EJSONValue<T>>}
- */
-const pluginArray = () => (next) => {
-  return new Builder((compare) => {
-    return conditional(
-      isEJSONArray,
-      next,
-      /**
-       * @param {EJSONArray<T>} x
-       * @param {EJSONArray<T>} y
-       */
-      (x, y) => {
-        const n = x.length;
-        const m = y.length;
-        for (let i = 0; i < n && i < m; i += 1) {
-          const result = compare(x[i], y[i]);
-          if (result !== 0) {
-            return result;
-          }
-        }
-        return basicCompare(n, m);
-      }
-    );
-  });
-};
-
-/**
- * @template T
- * @param {EJSONObject<T>} x
- * @returns {Array<[string, EJSONValue<T>]>}
- */
-const toPairs = (x) => {
-  return Object.entries(x).sort((a, b) => basicCompare(a[0], b[0]));
-};
-
-/**
- * @template T
- * @returns {Plugin<EJSONValue<T>, EJSONValue<T>>}
- */
-const pluginDictionary = () => (next) => {
-  return new Builder((compare) => {
-    // const compareWithArray = Builder.from(compare).chain(pluginArray()).get();
-    return conditional(
-      isEJSONObject,
-      next,
-      /**
-       * @param {EJSONObject<T>} x
-       * @param {EJSONObject<T>} y
-       * @returns
-       */
-      (x, y) => {
-        return compare(toPairs(x), toPairs(y));
-      }
-    );
-  });
-};
-
-/**
- * @template T
  * @param {T} x
  */
-const is = (x) => {
+const isLiteral = (x) => {
   /**
    * @param {unknown} y
    * @returns {y is T}
@@ -261,21 +258,15 @@ const is = (x) => {
  * implemented in MongoDB. See:
  * https://docs.mongodb.com/manual/reference/bson-type-comparison-order/
  */
-export const builder = Builder.from(
-  /**
-   * @param {Comparable} _x
-   * @param {Comparable} _y
-   */
-  (_x, _y) => 0
-)
-  .if(is(undefined), basicCompare)
-  .if(is(null), basicCompare)
-  .if(isNumber, basicCompare)
-  .if(isString, basicCompare)
-  .bind(pluginDictionary())
-  .bind(pluginArray())
-  .if(isBoolean, basicCompare)
-  .if(isDate, basicCompare)
-  .if(isRegExp, basicCompare);
+export const builder = Builder.create()
+  .ifType(isLiteral(undefined), comparePrimitives)
+  .ifType(isLiteral(null), comparePrimitives)
+  .ifType(isNumber, comparePrimitives)
+  .ifType(isString, comparePrimitives)
+  .type(isObject)
+  .type(isArray)
+  .ifType(isBoolean, comparePrimitives)
+  .ifType(isDate, comparePrimitives)
+  .ifType(isRegExp, comparePrimitives);
 
 export const compare = builder.get();
