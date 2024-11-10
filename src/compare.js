@@ -1,12 +1,14 @@
 /**
- * @template T
+ * @template [T=unknown]
  * @typedef {(x: T, y: T) => number} CompareFn
  */
 
 /**
  * @template T
- * @template U
- * @typedef {(compare: CompareFn<T>) => Builder<U>} Plugin
+ * @typedef {object} Plugin
+ * @property {(x: unknown) => x is T} predicate
+ * @property {CompareFn<T>} [compare]
+ * @property {(fn: CompareFn<T>) => CompareFn<T>} [makeCompare]
  */
 
 /**
@@ -33,16 +35,16 @@ function comparePrimitives(x, y) {
  * @returns {number}
  */
 function compareObjects(x, y, compareProperties) {
-  const xKeys = Object.keys(x).sort();
-  const yKeys = Object.keys(y).sort();
-  const n = xKeys.length;
-  const m = yKeys.length;
+  const keysOfX = Object.keys(x).sort();
+  const keysOfY = Object.keys(y).sort();
+  const n = keysOfX.length;
+  const m = keysOfY.length;
   for (let i = 0; i < n && i < m; i += 1) {
-    let result = comparePrimitives(xKeys[i], yKeys[i]);
+    let result = comparePrimitives(keysOfX[i], keysOfY[i]);
     if (result !== 0) {
       return result;
     }
-    result = compareProperties(x[xKeys[i]], y[yKeys[i]]);
+    result = compareProperties(x[keysOfX[i]], y[keysOfY[i]]);
     if (result !== 0) {
       return result;
     }
@@ -69,21 +71,17 @@ function compareArrays(x, y, compareItems) {
 }
 
 /**
- * @template [T=never]
- * @typedef {(
- *   | EJSONObject<T>
- *   | EJSONArray<T>
- *   | T
- * )} EJSONValue
+ * @template T
+ * @typedef {EJSONObject<T> | EJSONArray<T> | T} EJSONValue
  */
 
 /**
- * @template [T=never]
+ * @template T
  * @typedef {{ [x: string]: EJSONValue<T> }} EJSONObject
  */
 
 /**
- * @template [T=never]
+ * @template T
  * @typedef {Array<EJSONValue<T>>} EJSONArray
  */
 
@@ -102,91 +100,127 @@ function compareArrays(x, y, compareItems) {
  */
 
 /**
- * @template U
- * @template V
- * @param {(x: U | V) => x is V} isOfType
- * @param {CompareFn<V>} compare
- * @param {CompareFn<U>} next
- * @returns {CompareFn<U | V>}
- */
-function makeConditional(isOfType, compare, next) {
-  return (x, y) => {
-    if (isOfType(x)) {
-      if (isOfType(y)) {
-        return compare(x, y);
-      }
-      return 1;
-    }
-    if (isOfType(y)) {
-      return -1;
-    }
-    return next(x, y);
-  };
-}
-
-/**
  * @template T
  */
 export class Builder {
-  #compare;
+  #plugins;
 
   /**
    * @private
-   * @param {CompareFn<T>} compare
+   * @param {Array<Plugin<unknown>>} plugins
    */
-  constructor(compare) {
-    this.#compare = compare;
+  constructor(plugins) {
+    this.#plugins = plugins;
   }
 
   /**
    * Elements of type U will come after any other type defined so far.
    * @template U
-   * @param {(x: T | U) => x is U} isType
+   * @param {(x: unknown) => x is U} predicate
    * @param {CompareFn<U>} compare
    * @returns {Builder<T | U>}
    */
-  ifType(isType, compare) {
-    return new Builder(makeConditional(isType, compare, this.#compare));
+  ifType(predicate, compare) {
+    return new Builder([
+      ...this.#plugins,
+      /** @type {Plugin<unknown>} */ ({ predicate, compare }),
+    ]);
+  }
+
+  /**
+   * @template U
+   * @param {(x: unknown) => x is U} predicate
+   * @param {(fn: CompareFn<T | U>) => CompareFn<U>} makeCompare
+   * @returns {Builder<T | U>}
+   */
+  ifTypeRecursive(predicate, makeCompare) {
+    return new Builder([
+      ...this.#plugins,
+      /** @type {Plugin<unknown>} */ ({ predicate, makeCompare }),
+    ]);
   }
 
   /**
    * Elements of type U will come after any other type defined so far.
    * @template U
-   * @param {(x: T | U) => x is U} isOfType
+   * @param {(x: unknown) => x is U} predicate
    * @returns {Builder<T>}
    */
-  type(isOfType) {
-    return this.ifType(isOfType, () => 0);
+  type(predicate) {
+    return new Builder([
+      ...this.#plugins,
+      /** @type {Plugin<unknown>} */ ({ predicate }),
+    ]);
   }
 
   /**
    * @returns {CompareFn<EJSONValue<T>>}
    */
   get() {
+    /** @type {Map<number, CompareFn<unknown>>} */
+    const compareFnCache = new Map();
     /**
      * @param {EJSONValue<T>} x
      * @param {EJSONValue<T>} y
      * @returns {number}
      */
     const compare = (x, y) => {
-      if (isObject(x) && isObject(y)) {
-        return compareObjects(x, y, compare);
+      let i = -1;
+      let j = -1;
+      for (let k = 0; k < this.#plugins.length; k += 1) {
+        const { predicate } = this.#plugins[k];
+        if (predicate(x)) {
+          i = k;
+        }
+        if (predicate(y)) {
+          j = k;
+        }
       }
-      if (isArray(x) && isArray(y)) {
-        return compareArrays(x, y, compare);
+      if (i !== j) {
+        return comparePrimitives(i, j);
       }
-      return this.#compare(/** @type {T} */ (x), /** @type {T} */ (y));
+      if (i >= 0) {
+        const { compare: cmp, makeCompare } = this.#plugins[i];
+        if (cmp) {
+          return cmp(x, y);
+        }
+        if (makeCompare) {
+          let cmp = compareFnCache.get(i);
+          if (!cmp) {
+            cmp = makeCompare(/** @type {CompareFn<unknown>}*/ (compare));
+            compareFnCache.set(i, cmp);
+          }
+          return cmp(x, y);
+        }
+      }
+      const isObjectX = isObject(x);
+      const isObjectY = isObject(y);
+      if (isObjectX) {
+        if (isObjectY) {
+          return compareObjects(x, y, compare);
+        }
+        // x is an object, y is an array
+        return -1;
+      }
+      const isArrayX = isArray(x);
+      const isArrayY = isArray(y);
+      if (isArrayX) {
+        if (isArrayY) {
+          return compareArrays(x, y, compare);
+        }
+        // x is an array, y is an object
+        return 1;
+      }
+      return 0;
     };
     return compare;
   }
 
+  /**
+   * @returns {Builder<never>}
+   */
   static create() {
-    /**
-     * @param {never} _x
-     * @param {never} _y
-     */
-    const equals = (_x, _y) => 0;
-    return new Builder(equals).type(isObject).type(isArray);
+    return new Builder([]);
   }
 }
 
