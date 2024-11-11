@@ -8,12 +8,30 @@
  * @typedef {object} Plugin
  * @property {(x: unknown) => x is T} predicate
  * @property {CompareFn<T>} [compare]
- * @property {(fn: CompareFn<T>) => CompareFn<T>} [makeCompare]
+ */
+
+/**
+ * @template T
+ * @typedef {T extends CompareFn<infer U> ? U : never} Comparable
+ */
+
+/**
+ * @typedef {Comparable<typeof compare>} DefaultComparable
+ */
+
+/**
+ * @typedef {(
+ *  | string
+ *  | number
+ *  | boolean
+ *  | Date
+ *  | RegExp
+ * )} Primitive
  */
 
 /**
  * Because NaN < NaN => false, this function returns 0 for (NaN, NaN).
- * @template T
+ * @template {Primitive} T
  * @param {T} x
  * @param {T} y
  */
@@ -86,20 +104,6 @@ function compareArrays(x, y, compareItems) {
  */
 
 /**
- * @template [T=never]
- * @typedef {EJSONValue<
- *   | null
- *   | string
- *   | number
- *   | boolean
- *   | Date
- *   | RegExp
- *   | undefined
- *   | T
- * >} Comparable
- */
-
-/**
  * @template T
  */
 export class Builder {
@@ -128,28 +132,22 @@ export class Builder {
   }
 
   /**
-   * @template U
-   * @param {(x: unknown) => x is U} predicate
-   * @param {(fn: CompareFn<T | U>) => CompareFn<U>} makeCompare
-   * @returns {Builder<T | U>}
+   * @returns {Builder<T>}
    */
-  ifTypeRecursive(predicate, makeCompare) {
+  thenTypeObject() {
     return new Builder([
       ...this.#plugins,
-      /** @type {Plugin<unknown>} */ ({ predicate, makeCompare }),
+      /** @type {Plugin<unknown>} */ ({ predicate: isObject }),
     ]);
   }
 
   /**
-   * Elements of type U will come after any other type defined so far.
-   * @template U
-   * @param {(x: unknown) => x is U} predicate
    * @returns {Builder<T>}
    */
-  type(predicate) {
+  thenTypeArray() {
     return new Builder([
       ...this.#plugins,
-      /** @type {Plugin<unknown>} */ ({ predicate }),
+      /** @type {Plugin<unknown>} */ ({ predicate: isArray }),
     ]);
   }
 
@@ -180,16 +178,8 @@ export class Builder {
         return comparePrimitives(i, j);
       }
       if (i >= 0) {
-        const { compare: cmp, makeCompare } = this.#plugins[i];
+        const { compare: cmp } = this.#plugins[i];
         if (cmp) {
-          return cmp(x, y);
-        }
-        if (makeCompare) {
-          let cmp = compareFnCache.get(i);
-          if (!cmp) {
-            cmp = makeCompare(/** @type {CompareFn<unknown>}*/ (compare));
-            compareFnCache.set(i, cmp);
-          }
           return cmp(x, y);
         }
       }
@@ -293,12 +283,12 @@ const isLiteral = (x) => {
  * https://docs.mongodb.com/manual/reference/bson-type-comparison-order/
  */
 export const builder = Builder.create()
-  .ifType(isLiteral(undefined), comparePrimitives)
-  .ifType(isLiteral(null), comparePrimitives)
+  .ifType(isLiteral(undefined), () => 0)
+  .ifType(isLiteral(null), () => 0)
   .ifType(isNumber, comparePrimitives)
   .ifType(isString, comparePrimitives)
-  .type(isObject)
-  .type(isArray)
+  .thenTypeObject()
+  .thenTypeArray()
   .ifType(isBoolean, comparePrimitives)
   .ifType(isDate, comparePrimitives)
   .ifType(isRegExp, comparePrimitives);
